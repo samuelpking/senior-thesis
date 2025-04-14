@@ -6,7 +6,7 @@ import numpy as np
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 # --- File path ---
-tif_path = "../DelayedHarvest/StandAge/tree_type.tif"  # Replace with your actual TIFF path
+tif_path = "YOUR_PATH_HERE/tree_type.tif"  # Replace with your actual TIFF path
 
 # --- Open the TIFF file ---
 with rasterio.open(tif_path) as src:
@@ -76,7 +76,7 @@ import matplotlib.pyplot as plt
 import rasterio
 
 # Load the raster file (for example, your tree type grid)
-with rasterio.open("../DelayedHarvest/StandAge/tree_type.tif") as src:
+with rasterio.open("YOUR_PATH_HERE/tree_type.tif") as src:
     tree_grid = src.read(1)  # Read the first band (tree types)
 
 # Let's print the unique values in the raster (to match with the dictionary)
@@ -112,7 +112,7 @@ import numpy as np
 import rasterio
 
 # Assuming you've already loaded your tree type raster
-with rasterio.open("../DelayedHarvest/StandAge/tree_type.tif") as src:
+with rasterio.open("YOUR_PATH_HERE/tree_type.tif") as src:
     tree_type_raster = src.read(1)
     src_transform = src.transform
     src_crs = src.crs
