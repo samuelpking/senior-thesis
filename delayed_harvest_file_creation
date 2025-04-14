@@ -1,0 +1,257 @@
+# ------- Creating the delayed-harvest wood-harvest dataset --------
+# ----------- Visualizing the tree type raster ---------------
+import rasterio
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.colors import ListedColormap, BoundaryNorm
+
+# --- File path ---
+tif_path = "../DelayedHarvest/StandAge/tree_type.tif"  # Replace with your actual TIFF path
+
+# --- Open the TIFF file ---
+with rasterio.open(tif_path) as src:
+    print(f"TIFF has {src.count} band(s)")
+    
+    band_number = 1
+    if src.count < band_number:
+        raise ValueError(f"This file only has {src.count} band(s), can't read band {band_number}")
+    
+    band_data = src.read(band_number)
+    extent = [src.bounds.left, src.bounds.right, src.bounds.bottom, src.bounds.top]
+
+# --- Set up discrete classes ---
+unique_values = np.unique(band_data[~np.isnan(band_data)])  # Exclude NaNs
+print(f"Unique values: {unique_values}")
+
+# Create a colormap with as many colors as unique values
+colors = plt.cm.get_cmap('tab20', len(unique_values))  # or 'Set3', 'tab10', etc.
+cmap = ListedColormap([colors(i) for i in range(len(unique_values))])
+norm = BoundaryNorm(boundaries=np.append(unique_values, unique_values[-1] + 1), ncolors=len(unique_values))
+
+# --- Plot with discrete colormap ---
+plt.figure(figsize=(10, 8))
+im = plt.imshow(band_data, cmap=cmap, norm=norm, extent=extent)
+plt.colorbar(im, ticks=unique_values, label=f"Classes (Band {band_number})")
+plt.title(f'Discrete Visualization of {tif_path} - Band {band_number}')
+plt.xlabel("Longitude")
+plt.ylabel("Latitude")
+plt.grid(False)
+plt.show()
+
+# ---------- Mapping tree types and 30 YR DELAYED rotation lengths for tree type groups ----------
+tree_info = {
+    0: {"species": "NO_FRST", "tree_rot": 500}, 
+    1: {"species": "WRJP", "tree_rot": 85},
+    2: {"species": "SF", "tree_rot": 75},
+    3: {"species": "LL", "tree_rot": 65},
+    5: {"species": "LP", "tree_rot": 65},
+    7: {"species": "PJ", "tree_rot": 105},
+    8: {"species": "DF", "tree_rot": 75},
+    9: {"species": "PP", "tree_rot": 150},
+    10: {"species": "WWP", "tree_rot": 105},
+    11: {"species": "FSMH", "tree_rot": 150},
+    12: {"species": "LPP", "tree_rot": 105},
+    13: {"species": "HSP", "tree_rot": 75},
+    14: {"species": "WL", "tree_rot": 90},
+    15: {"species": "RW", "tree_rot": 80},
+    16: {"species": "OWSW", "tree_rot": 105},
+    17: {"species": "CMC", "tree_rot": 105},
+    18: {"species": "ESW", "tree_rot": 65},
+    20: {"species": "OP", "tree_rot": 150},
+    21: {"species": "OH", "tree_rot": 80},
+    22: {"species": "OGC", "tree_rot": 80},
+    23: {"species": "EAC", "tree_rot": 85},
+    24: {"species": "MBB", "tree_rot": 95},
+    25: {"species": "AB", "tree_rot": 85},
+    26: {"species": "AM", "tree_rot": 75},
+    27: {"species": "WO", "tree_rot": 105},
+    28: {"species": "TL", "tree_rot": 105},
+    31: {"species": "TH", "tree_rot": 80},
+    32: {"species": "EHW", "tree_rot": 80},
+    }
+
+# ------- Mapping tree info onto the raster dataset ---------
+import numpy as np
+import matplotlib.pyplot as plt
+import rasterio
+
+# Load the raster file (for example, your tree type grid)
+with rasterio.open("../DelayedHarvest/StandAge/tree_type.tif") as src:
+    tree_grid = src.read(1)  # Read the first band (tree types)
+
+# Let's print the unique values in the raster (to match with the dictionary)
+unique_values = np.unique(tree_grid)
+print("Unique values in the raster:", unique_values)
+
+# Create an empty list to store mapped information
+mapped_info = []
+
+# Iterate over each value in the raster and map the info
+for value in unique_values:
+    if value in tree_info:
+        # Get the corresponding information from the tree_info dictionary
+        info = tree_info[value]
+        mapped_info.append((value, info))
+        print(f"Value {value} maps to: {info}")
+    else:
+        print(f"Value {value} does not have a mapping.")
+
+# Optionally, you can also replace the values in the raster with something like the growth rate or average height
+# Example: Replacing the raster values with "growth_rate"
+rotation_age_raster = np.vectorize(lambda x: tree_info.get(x, {}).get('tree_rot'))(tree_grid)
+
+# Debug: Plotting the modified raster (growth rates)
+plt.figure(figsize=(10, 8))
+plt.imshow(rotation_age_raster, cmap="tab20", origin="upper")  # Display as discrete categories
+plt.colorbar(label="Rotation Age")
+plt.title("Rotation Age Raster Based on Tree Types")
+plt.show()
+
+# -------- Match the tree info w/ rotation lengths to the raster dataset of tree type by index --------
+import numpy as np
+import rasterio
+
+# Assuming you've already loaded your tree type raster
+with rasterio.open("../DelayedHarvest/StandAge/tree_type.tif") as src:
+    tree_type_raster = src.read(1)
+    src_transform = src.transform
+    src_crs = src.crs
+    src_meta = src.meta
+
+# Create rotation raster from tree types
+rotation_raster = np.zeros_like(tree_type_raster, dtype=np.float32)
+for code, info in tree_info.items():
+    rotation_raster[tree_type_raster == code] = info["tree_rot"]
+
+# -------- Resample the tree type raster w/ rotation lengths to match the DLEM format -------
+
+from rasterio.warp import reproject, Resampling
+
+# Load your target resolution raster (e.g., Resampled_StandAge_2018.tif)
+with rasterio.open("Extract_mask1.tif") as target:
+    target_data = target.read(1)
+    target_transform = target.transform
+    target_crs = target.crs
+    target_shape = target_data.shape
+
+# Prepare the destination array for the resampled rotation raster
+resampled_rotation = np.zeros(target_shape, dtype=np.float32)
+
+# Resample using mode or nearest neighbor depending on your needs
+reproject(
+    source=rotation_raster,
+    destination=resampled_rotation,
+    src_transform=src_transform,
+    src_crs=src_crs,
+    dst_transform=target_transform,
+    dst_crs=target_crs,
+    resampling=Resampling.nearest  # `nearest` is appropriate for categorical data
+)
+
+# ------- Visual inspection/confirmation of rotation age map ---------
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10, 8))
+plt.imshow(resampled_rotation, cmap='viridis', origin='upper')
+plt.colorbar(label="Rotation Length (years)")
+plt.title("Resampled Rotation Age Map")
+plt.show()
+
+# Check the cell values in the raster file
+unique_values = np.unique(resampled_rotation)
+print("Unique values in the raster:", unique_values)
+
+# --------- Save the rotation age tiff -----------
+# Prepare metadata
+resampled_meta = target.meta.copy()
+resampled_meta.update({
+    "dtype": "float32",
+    "count": 1,
+    "compress": "lzw"
+})
+
+# Save to GeoTIFF
+with rasterio.open("DLEM_Delayed_Rotation_Age.tif", "w", **resampled_meta) as dst:
+    dst.write(resampled_rotation, 1)
+
+# ---_-_-_-____--- CREATING THE DELAYED WOODHARVEST INPUT FILES __-----_____---___--
+
+# --- Step 0: Define paths and years ---
+import os
+stand_age_path = "ForestAge_2000_to_2100.tif"
+rotation_length_path = "DLEM_Delayed_Rotation_Age.tif"
+output_age_path = "Updated_Delayed_ForestAge_2000_to_2100.tif"
+harvest_dir = "woodharvest30"
+os.makedirs(harvest_dir, exist_ok=True)
+
+start_year = 2000
+end_year = 2100
+num_years = end_year - start_year + 1
+
+# --- Step 1: Load stand age raster ---
+with rasterio.open(stand_age_path) as src:
+    stand_age_stack = src.read()  # Shape: (years, rows, cols)
+    meta = src.meta.copy()
+    profile = src.profile
+
+# --- Step 2: Load rotation length raster ---
+with rasterio.open(rotation_length_path) as src:
+    rotation_length_data = src.read(1)
+
+# --- Step 3: Identify protected cells (age > 200 in 2000) ---
+initial_age = stand_age_stack[0]
+protected_cells = initial_age > 200
+
+# --- Step 4: Initialize harvest maps and updated age stack ---
+harvest_maps = np.zeros_like(stand_age_stack, dtype=np.float32)
+updated_stack = stand_age_stack.copy()
+
+# --- Step 5: Process each year for harvest and age growth ---
+for i in range(num_years):
+    current_age = updated_stack[i]
+
+    # Harvest conditions
+    harvest_mask = (current_age >= rotation_length_data) & ~protected_cells & (current_age > 0)
+    harvest_maps[i] = harvest_mask.astype(np.float32)
+
+    # Update next year's stand age
+    if i < num_years - 1:
+        next_age = current_age.copy()
+        next_age[harvest_mask] = 0  # reset harvested
+        next_age[~harvest_mask & (current_age > 0)] += 1  # grow existing forest
+        updated_stack[i + 1] = next_age
+
+    # Save binary harvest map
+    year = start_year + i
+   
+    # Save binary file for DLEM
+    bin_path = os.path.join(harvest_dir, f"woodharvest30_{year}.bin")
+    harvest_maps[i].astype(np.float32).tofile(bin_path)
+
+    # Save GeoTIFF version for ArcGIS
+    tif_path = os.path.join(harvest_dir, f"woodharvest30_{year}.tif")
+    harvest_meta = profile.copy()
+    harvest_meta.update({
+        "count": 1,
+        "dtype": "float32",
+        "nodata": -9999
+    })
+    with rasterio.open(tif_path, "w", **harvest_meta) as dst:
+        dst.write(harvest_maps[i].astype(np.float32), 1)
+
+# --- Step 6: Save updated multiband stand age raster ---
+meta.update(count=num_years, dtype="float32")
+with rasterio.open(output_age_path, "w", **meta) as dst:
+    dst.write(updated_stack.astype(np.float32))
+
+# --- Step 7: Validate with a double harvest plot ---
+double_harvests = np.zeros_like(harvest_maps[0], dtype=bool)
+for i in range(1, num_years):
+    double_harvests |= (harvest_maps[i] & harvest_maps[i - 1]) > 0
+
+plt.figure(figsize=(10, 8))
+plt.imshow(double_harvests, cmap="Reds")
+plt.title("Cells Harvested in Consecutive Years (Should Be Empty)")
+plt.colorbar()
+plt.tight_layout()
+plt.show()
